@@ -1,0 +1,176 @@
+---
+title: "Regression and Other Stories: Continuous Predictor"
+output: pdf_document
+---
+
+\renewcommand{\vec}[1]{\mathbf{#1}}
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.height = 3, fig.width = 5, fig.align = 'center')
+library(tidyverse) 
+library(gridExtra)
+library(rstanarm)
+library(arm)
+set.seed(09222020)
+```
+
+
+### Regression Example
+
+We will once again use the Brazilian beer dataset to illustrate the regression process.
+
+```{r, message = F}
+beer <- read_csv('http://math.montana.edu/ahoegh/Data/Brazil_cerveja.csv')
+```
+
+\vfill
+
+- Fit Model
+
+```{r}
+stan_fit <- stan_glm(consumed ~ max_tmp, data = beer, refresh = 0)
+print(stan_fit)
+```
+
+\vfill
+
+- the fitted regression line is *$\hat{y} = 8 + .7 x$, where $\hat{y}$ is the beer consumption in liters and $x$ is the daily maximum temperature.*
+
+\vfill
+
+- At $x = 0$ *(maximum temperature of O ) the daily consumption is predicted to be 8 liters*
+
+\vfill
+
+- Each additional degree (maximum temperature) corresponds *to an expected daily consumption that is 0.7 liter greater than 8 liters.*
+
+\vfill
+
+- The standard errors around the coefficients are quite small.
+
+\vfill
+
+- The estimated _residual standard deviation_ is 3.4. *To interpret this value, roughly 68% of the daily consumption values will be within $\pm$ 3.4 liters of the fitted regression line and 95% will fall within $\approx \pm 2 \times 3.4$ liters of the regression line.*
+\vfill
+
+\newpage
+
+```{r, echo = F}
+beer %>% ggplot(aes(y = consumed, x = max_tmp)) +
+  geom_point() + geom_smooth(method = 'lm', formula = 'y ~ x') +
+  theme_minimal() + ggtitle('Beer Consumption vs Maximum Temperature') +
+  ylab('Beer Consumption (L)') + xlab("Maximum Daily Temperature (C)")
+```
+
+#### Centering Data
+
+```{r}
+ave_tmp <- beer %>% summarize(ave_tmp = mean(max_tmp)) %>% pull()
+```
+
+_The average daily maximum temperature is `r round(ave_tmp)` Celsius, which corresponds to `r round(ave_tmp * 1.8 + 32)` F._
+
+\vfill
+
+We can center the temperature by subtracting the average temperature. Thus the new variable corresponds to deviation from the average temperature.
+\vfill
+```{r}
+beer <- beer %>% mutate(tmp_centered = max_tmp - ave_tmp) 
+```
+
+```{r, echo = F}
+beer %>% ggplot(aes(y = consumed, x = tmp_centered)) +
+  geom_point() + geom_smooth(method = 'lm', formula = 'y ~ x') +
+  theme_minimal() + ggtitle('Beer Consumption vs Maximum Temperature') +
+  ylab('Beer Consumption (L)') + xlab("Maximum Daily Temperature (C) \n Deviation from Mean Temperature (27)")
+```
+
+```{r}
+stan_fit <- stan_glm(consumed ~ tmp_centered, data = beer, refresh = 0)
+print(stan_fit)
+```
+
+- the fitted regression line is *$\hat{y} = 25.4 + .7 x^{'}$, where $\hat{y}$ is the beer consumption in liters and $x^{'}$ is the deviation from the average daily maximum temperature (27C).*
+
+\vfill
+
+- At $x^{'} = 0$ *(average daily maximum temperature) the daily consumption is predicted to be 25.4 liters*
+
+\vfill
+
+- Each degree different from the daily average maximum temperature corresponds *to an expected daily consumption that is 0.7 liter greater/less than 25.4 liters.*
+
+\vfill
+
+- The standard errors around the coefficients are quite small.
+
+\vfill
+
+- The estimated _residual standard deviation_ is 3.4. *To interpret this value, roughly 68% of the daily consumption values will be within $\pm$ 3.4 liters of the fitted regression line and 95% will fall within $\approx \pm 2 \times 3.4$ liters of the regression line.*
+\vfill
+
+\newpage
+
+### Comparisons of a mean and linear models
+
+Consider comparing the mean beer consumption between weekend and weekdays.
+
+
+```{r, echo = F, fig.cap = 'Comparison of beer consumption by day of week. '}
+beer %>% 
+  mutate(weekend_fact = factor(weekend, levels = c(0,1), labels = c('weekday','weekend'))) %>%
+  ggplot(aes(y = consumed, x = weekend_fact, fill = weekend_fact)) +
+  stat_summary(fun = mean, geom = 'bar', size = 6) +
+  stat_summary(fun.data = mean_cl_normal, geom = 'errorbar', width = 0, size = 1.1) +
+   xlab('') + 
+  ylab('Beer Consumption (L)') +
+  theme_minimal() +
+  theme(legend.position = 'none') + 
+  ggtitle('Comparison of Beer Consumption by Weekday/Weekend')
+
+```
+
+```{r, echo = F, fig.cap = 'Comparison of beer consumption by day of week. The lines on the violin plots correspond to the median, and the .025 and .975 quantiles. The large circles represent the mean comsumption for each group.'}
+beer %>% 
+  mutate(weekend_fact = factor(weekend, levels = c(0,1), labels = c('weekday','weekend'))) %>%
+  ggplot(aes(y = consumed, x = weekend_fact, color = weekend_fact)) + 
+  geom_violin(draw_quantiles = c(0.025, 0.5, 0.975)) +
+  geom_jitter(alpha = .5) +
+  xlab('') + 
+  ylim(0,NA)+
+  ylab('Beer Consumption (L)') +
+  theme_minimal() +
+  theme(legend.position = 'none') + 
+  stat_summary(fun=mean, geom="point", shape=19, size=5) +
+  ggtitle('Comparison of Beer Consumption by Weekday/Weekend')
+```
+
+\newpage
+
+A t-test is a common procedure for comparing whether the mean differs between two populations.
+
+```{r}
+weekend <- beer %>% filter(weekend == 1) %>% dplyr::select(consumed) %>% pull()
+weekday <- beer %>% filter(weekend == 0) %>% dplyr::select(consumed) %>% pull()
+t.test(weekend, weekday)
+```
+
+\vfill
+
+Formally this can be expressed as a linear model.
+
+$$y_i = \beta_0 + \beta_1 x_i + \epsilon_i$$
+*where $y_i$ is the consumption on day $i$, $x_i$ is a indicator variable for whether day $i$ is a weekend. The parameter $\beta_0$ is the mean value for the reference case (weekday in this setting) and $\beta_1$ is the mean difference between the two categories.*
+
+\vfill
+
+```{r}
+beer %>% mutate(weekend = as.factor(weekend)) %>%
+stan_glm(consumed ~ weekend, data = ., refresh = 0)
+```
+
+*With the t test, the goal is to determine whether the mean difference between the two groups is different from zero. This test statistics corresponds to $\beta_1$ in the regression model specified above.*
+
+\vfill
+
+*Similarly other "named models" such as ANOVA (ANalysis Of VAriance), ANCOVA (ANalysis of COVAriance) are just special cases of a linear model.*
